@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect } from 'react'
 import { Chess } from 'chess.js'
 import { Chessboard } from 'react-chessboard'
 import { fetchRecentGames } from './api/chesscom'
+import { explainBestMove } from './api/claude'
 import { useStockfish } from './hooks/useStockfish'
 
 const CLASSIFICATION = {
@@ -79,6 +80,7 @@ export default function App() {
   const [moveHistory, setMoveHistory] = useState([])
   const [moveIndex, setMoveIndex] = useState(0)
   const [evalCache, setEvalCache] = useState({})
+  const [explanation, setExplanation] = useState({ text: null, loading: false, error: null, forMove: null })
 
   const { ready: engineReady, error: engineError, analysis, evaluate, completedEval } = useStockfish()
 
@@ -99,6 +101,7 @@ export default function App() {
     setMoveHistory([])
     setMoveIndex(0)
     setEvalCache({})
+    setExplanation({ text: null, loading: false, error: null, forMove: null })
     try {
       const result = await fetchRecentGames(username)
       setGames(result)
@@ -119,6 +122,7 @@ export default function App() {
       setMoveIndex(0)
       setSelectedIndex(i)
       setEvalCache({})
+      setExplanation({ text: null, loading: false, error: null, forMove: null })
     } catch {
       setFetchError('Failed to parse game PGN')
     }
@@ -137,7 +141,26 @@ export default function App() {
     if (positions.length === 0) return
     const fen = positions[moveIndex]
     if (fen) evaluate(fen)
+    setExplanation(prev => ({ ...prev, text: null, error: null }))
   }, [moveIndex, positions])
+
+  async function handleExplain() {
+    if (!bestMove || explanation.loading) return
+    const moveKey = `${moveIndex}:${bestMove.san}`
+    if (explanation.forMove === moveKey) return
+    setExplanation({ text: null, loading: true, error: null, forMove: moveKey })
+    try {
+      const text = await explainBestMove({
+        fen: currentFen,
+        bestMoveSan: bestMove.san,
+        evalScore: scoreDisplay,
+        classification,
+      })
+      setExplanation({ text, loading: false, error: null, forMove: moveKey })
+    } catch (err) {
+      setExplanation({ text: null, loading: false, error: err.message, forMove: moveKey })
+    }
+  }
 
   const currentFen = positions[moveIndex] ?? 'start'
   const lastMove = moveHistory[moveIndex - 1]
@@ -240,9 +263,27 @@ export default function App() {
                   </div>
                   <div>
                     <span className="dim">best  </span>
-                    <span style={{ color: bestMove ? '#e0e0e0' : '#555' }}>
-                      {bestMove ? `${bestMove.from}${bestMove.to} (${bestMove.san})` : '—'}
-                    </span>
+                    {bestMove ? (
+                      <button
+                        onClick={handleExplain}
+                        disabled={explanation.loading}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          borderBottom: '1px solid #888',
+                          color: '#e0e0e0',
+                          cursor: 'pointer',
+                          fontFamily: 'inherit',
+                          fontSize: 'inherit',
+                          padding: '0 2px',
+                        }}
+                        title="click to explain this move"
+                      >
+                        {bestMove.from}{bestMove.to} ({bestMove.san})
+                      </button>
+                    ) : (
+                      <span style={{ color: '#555' }}>—</span>
+                    )}
                   </div>
                 </div>
                 {analysis.depth && (
@@ -251,6 +292,15 @@ export default function App() {
               </div>
             )}
           </div>
+
+          {(explanation.text || explanation.loading || explanation.error) && (
+            <div style={{ marginTop: 8, padding: '12px 16px', background: '#1e1e1e', border: '1px solid #333', maxWidth: 480 }}>
+              <div style={{ color: '#666', fontSize: 12, marginBottom: 6 }}>claude explanation</div>
+              {explanation.loading && <span style={{ color: '#666' }}>thinking...</span>}
+              {explanation.error && <span className="error">{explanation.error}</span>}
+              {explanation.text && <span style={{ color: '#c8c8c8', lineHeight: 1.6 }}>{explanation.text}</span>}
+            </div>
+          )}
         </div>
 
         {games.length > 0 && (
