@@ -24,6 +24,7 @@ VITE_ANTHROPIC_API_KEY=your-key-here
 
 ```bash
 npm run dev
+# open http://localhost:5173
 ```
 
 The Claude explanation requires the API key. Everything else works without it.
