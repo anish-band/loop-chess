@@ -1,7 +1,8 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { Chess } from 'chess.js'
 import { Chessboard } from 'react-chessboard'
 import { fetchRecentGames } from './api/chesscom'
+import { useStockfish } from './hooks/useStockfish'
 
 function formatGame(game) {
   const white = game.white?.username ?? '?'
@@ -24,6 +25,11 @@ function parseMoves(pgn) {
   return { positions, history }
 }
 
+function formatBestMove(san, from, to) {
+  if (!san) return null
+  return `${from}${to} (${san})`
+}
+
 export default function App() {
   const [input, setInput] = useState('')
   const [games, setGames] = useState([])
@@ -33,6 +39,8 @@ export default function App() {
   const [positions, setPositions] = useState([])
   const [moveHistory, setMoveHistory] = useState([])
   const [moveIndex, setMoveIndex] = useState(0)
+
+  const { ready: engineReady, error: engineError, analysis, evaluate } = useStockfish()
 
   async function handleFetch(e) {
     e.preventDefault()
@@ -78,9 +86,38 @@ export default function App() {
     if (e.key === 'ArrowRight') goTo(moveIndex + 1)
   }
 
+  useEffect(() => {
+    if (positions.length === 0) return
+    const fen = positions[moveIndex]
+    if (fen) evaluate(fen)
+  }, [moveIndex, positions])
+
   const currentFen = positions[moveIndex] ?? 'start'
   const lastMove = moveHistory[moveIndex - 1]
-  const moveNumber = moveIndex > 0 ? `Move ${moveIndex} / ${moveHistory.length}` : 'Starting position'
+  const moveNumber = moveIndex > 0 ? `move ${moveIndex} / ${moveHistory.length}` : 'starting position'
+
+  const bestMoveSan = (() => {
+    if (!analysis.bestMove || positions.length === 0) return null
+    const chess = new Chess(positions[moveIndex])
+    const uci = analysis.bestMove
+    const from = uci.slice(0, 2)
+    const to = uci.slice(2, 4)
+    const promotion = uci[4]
+    try {
+      const m = chess.move({ from, to, promotion })
+      return m ? formatBestMove(m.san, from, to) : null
+    } catch {
+      return null
+    }
+  })()
+
+  const scoreDisplay = (() => {
+    if (!analysis.score) return null
+    const raw = analysis.score
+    if (raw.startsWith('M')) return raw
+    const num = parseFloat(raw)
+    return num > 0 ? `+${num.toFixed(2)}` : `${num.toFixed(2)}`
+  })()
 
   return (
     <div onKeyDown={handleKey} tabIndex={-1} style={{ outline: 'none' }}>
@@ -124,6 +161,34 @@ export default function App() {
               <button onClick={() => goTo(positions.length - 1)} disabled={moveIndex === positions.length - 1}>&gt;|</button>
             </div>
           )}
+
+          <div style={{ marginTop: 20, padding: '12px 16px', background: '#222', border: '1px solid #333', minHeight: 80 }}>
+            <div style={{ color: '#666', fontSize: 12, marginBottom: 8 }}>
+              stockfish {engineReady ? '— ready' : '— initializing...'}
+            </div>
+            {engineError && <div className="error">{engineError}</div>}
+            {!engineError && positions.length > 0 && (
+              <div>
+                <div style={{ display: 'flex', gap: 24 }}>
+                  <div>
+                    <span className="dim">eval  </span>
+                    <span style={{ color: scoreDisplay ? '#e0e0e0' : '#555' }}>
+                      {scoreDisplay ?? '—'}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="dim">best  </span>
+                    <span style={{ color: bestMoveSan ? '#e0e0e0' : '#555' }}>
+                      {bestMoveSan ?? '—'}
+                    </span>
+                  </div>
+                </div>
+                {analysis.depth && (
+                  <div style={{ marginTop: 4, fontSize: 12, color: '#555' }}>depth {analysis.depth}</div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
 
         {games.length > 0 && (
