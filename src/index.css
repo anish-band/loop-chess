@@ -1,0 +1,71 @@
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: #1a1a1a;
+  color: #e0e0e0;
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 14px;
+  min-height: 100vh;
+}
+
+#root {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 24px 16px;
+}
+
+h1 {
+  font-size: 18px;
+  font-weight: normal;
+  letter-spacing: 0.1em;
+  color: #aaa;
+  margin-bottom: 24px;
+}
+
+input[type="text"] {
+  background: #252525;
+  border: 1px solid #444;
+  color: #e0e0e0;
+  font-family: inherit;
+  font-size: 14px;
+  padding: 8px 12px;
+  outline: none;
+  width: 220px;
+}
+
+input[type="text"]:focus {
+  border-color: #888;
+}
+
+button {
+  background: #333;
+  border: 1px solid #555;
+  color: #e0e0e0;
+  font-family: inherit;
+  font-size: 14px;
+  padding: 8px 16px;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  background: #444;
+}
+
+button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.error {
+  color: #e07070;
+  margin-top: 8px;
+  font-size: 13px;
+}
+
+.dim {
+  color: #666;
+}
