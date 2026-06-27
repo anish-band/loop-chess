@@ -2,9 +2,12 @@ import { useEffect, useRef, useState } from 'react'
 
 export function useStockfish() {
   const workerRef = useRef(null)
+  const currentFenRef = useRef(null)
+  const lastScoreRef = useRef(null)
   const [ready, setReady] = useState(false)
   const [error, setError] = useState(null)
   const [analysis, setAnalysis] = useState({ bestMove: null, score: null, depth: null })
+  const [completedEval, setCompletedEval] = useState(null)
   const pendingFen = useRef(null)
 
   useEffect(() => {
@@ -44,10 +47,14 @@ export function useStockfish() {
 
         if (mateMatch) {
           const mateIn = parseInt(mateMatch[1])
-          setAnalysis(prev => ({ ...prev, score: `M${mateIn}`, depth }))
+          const score = `M${mateIn}`
+          lastScoreRef.current = score
+          setAnalysis(prev => ({ ...prev, score, depth }))
         } else if (cpMatch) {
           const cp = parseInt(cpMatch[1]) / 100
-          setAnalysis(prev => ({ ...prev, score: cp.toFixed(2), depth }))
+          const score = cp.toFixed(2)
+          lastScoreRef.current = score
+          setAnalysis(prev => ({ ...prev, score, depth }))
         }
       } else if (msg.startsWith('bestmove')) {
         const parts = msg.split(' ')
@@ -55,6 +62,12 @@ export function useStockfish() {
         if (bm && bm !== '(none)') {
           setAnalysis(prev => ({ ...prev, bestMove: bm }))
         }
+        // always fire completedEval so cache is updated
+        setCompletedEval({
+          fen: currentFenRef.current,
+          score: lastScoreRef.current,
+          bestMove: bm && bm !== '(none)' ? bm : null,
+        })
       }
     }
 
@@ -67,6 +80,8 @@ export function useStockfish() {
   }, [])
 
   function sendPosition(worker, fen) {
+    currentFenRef.current = fen
+    lastScoreRef.current = null
     worker.postMessage('stop')
     worker.postMessage(`position fen ${fen}`)
     worker.postMessage('go depth 18')
@@ -82,5 +97,5 @@ export function useStockfish() {
     sendPosition(workerRef.current, fen)
   }
 
-  return { ready, error, analysis, evaluate }
+  return { ready, error, analysis, evaluate, completedEval }
 }

@@ -4,6 +4,36 @@ import { Chessboard } from 'react-chessboard'
 import { fetchRecentGames } from './api/chesscom'
 import { useStockfish } from './hooks/useStockfish'
 
+const CLASSIFICATION = {
+  Blunder: { label: 'Blunder', color: 'rgba(220,50,50,0.55)' },
+  Miss:    { label: 'Miss',    color: 'rgba(230,130,50,0.55)' },
+  Good:    { label: 'Good',    color: 'rgba(60,180,60,0.55)' },
+  Great:   { label: 'Great',   color: 'rgba(50,110,220,0.55)' },
+}
+
+function parseScore(score) {
+  if (!score) return null
+  if (score.startsWith('M')) {
+    const n = parseInt(score.slice(1))
+    return n > 0 ? 100 : -100
+  }
+  const v = parseFloat(score)
+  return isNaN(v) ? null : v
+}
+
+function classifyMove(prevScore, currScore) {
+  const prev = parseScore(prevScore)
+  const curr = parseScore(currScore)
+  if (prev === null || curr === null) return null
+  // Both scores are from the perspective of the side to move.
+  // loss for the player who just moved = prev + curr
+  const loss = prev + curr
+  if (loss > 2.0) return 'Blunder'
+  if (loss > 0.5) return 'Miss'
+  if (loss < -0.5) return 'Great'
+  return 'Good'
+}
+
 function formatGame(game) {
   const white = game.white?.username ?? '?'
   const black = game.black?.username ?? '?'
@@ -25,9 +55,18 @@ function parseMoves(pgn) {
   return { positions, history }
 }
 
-function formatBestMove(san, from, to) {
-  if (!san) return null
-  return `${from}${to} (${san})`
+function resolveBestMove(uci, fen) {
+  if (!uci || !fen) return null
+  const chess = new Chess(fen)
+  const from = uci.slice(0, 2)
+  const to = uci.slice(2, 4)
+  const promotion = uci[4]
+  try {
+    const m = chess.move({ from, to, promotion })
+    return m ? { from, to, san: m.san } : null
+  } catch {
+    return null
+  }
 }
 
 export default function App() {
@@ -39,8 +78,14 @@ export default function App() {
   const [positions, setPositions] = useState([])
   const [moveHistory, setMoveHistory] = useState([])
   const [moveIndex, setMoveIndex] = useState(0)
+  const [evalCache, setEvalCache] = useState({})
 
-  const { ready: engineReady, error: engineError, analysis, evaluate } = useStockfish()
+  const { ready: engineReady, error: engineError, analysis, evaluate, completedEval } = useStockfish()
+
+  useEffect(() => {
+    if (!completedEval?.fen) return
+    setEvalCache(prev => ({ ...prev, [completedEval.fen]: completedEval }))
+  }, [completedEval])
 
   async function handleFetch(e) {
     e.preventDefault()
@@ -53,6 +98,7 @@ export default function App() {
     setPositions([])
     setMoveHistory([])
     setMoveIndex(0)
+    setEvalCache({})
     try {
       const result = await fetchRecentGames(username)
       setGames(result)
@@ -72,6 +118,7 @@ export default function App() {
       setMoveHistory(history)
       setMoveIndex(0)
       setSelectedIndex(i)
+      setEvalCache({})
     } catch {
       setFetchError('Failed to parse game PGN')
     }
@@ -96,20 +143,7 @@ export default function App() {
   const lastMove = moveHistory[moveIndex - 1]
   const moveNumber = moveIndex > 0 ? `move ${moveIndex} / ${moveHistory.length}` : 'starting position'
 
-  const bestMoveSan = (() => {
-    if (!analysis.bestMove || positions.length === 0) return null
-    const chess = new Chess(positions[moveIndex])
-    const uci = analysis.bestMove
-    const from = uci.slice(0, 2)
-    const to = uci.slice(2, 4)
-    const promotion = uci[4]
-    try {
-      const m = chess.move({ from, to, promotion })
-      return m ? formatBestMove(m.san, from, to) : null
-    } catch {
-      return null
-    }
-  })()
+  const bestMove = analysis.bestMove ? resolveBestMove(analysis.bestMove, currentFen) : null
 
   const scoreDisplay = (() => {
     if (!analysis.score) return null
@@ -117,6 +151,30 @@ export default function App() {
     if (raw.startsWith('M')) return raw
     const num = parseFloat(raw)
     return num > 0 ? `+${num.toFixed(2)}` : `${num.toFixed(2)}`
+  })()
+
+  const classification = (() => {
+    if (moveIndex === 0 || positions.length === 0) return null
+    const prevFen = positions[moveIndex - 1]
+    const currFen = positions[moveIndex]
+    const prevEval = evalCache[prevFen]
+    const currEval = evalCache[currFen]
+    return classifyMove(prevEval?.score, currEval?.score)
+  })()
+
+  const classInfo = classification ? CLASSIFICATION[classification] : null
+
+  const squareStyles = (() => {
+    if (!lastMove) return {}
+    const base = {
+      [lastMove.from]: { backgroundColor: 'rgba(255,255,100,0.2)' },
+    }
+    if (classInfo) {
+      base[lastMove.to] = { backgroundColor: classInfo.color }
+    } else {
+      base[lastMove.to] = { backgroundColor: 'rgba(255,255,100,0.35)' }
+    }
+    return base
   })()
 
   return (
@@ -145,10 +203,7 @@ export default function App() {
               arePiecesDraggable={false}
               customDarkSquareStyle={{ backgroundColor: '#4a4a4a' }}
               customLightSquareStyle={{ backgroundColor: '#9a9a9a' }}
-              customSquareStyles={lastMove ? {
-                [lastMove.from]: { backgroundColor: 'rgba(255,255,100,0.25)' },
-                [lastMove.to]: { backgroundColor: 'rgba(255,255,100,0.35)' },
-              } : {}}
+              customSquareStyles={squareStyles}
             />
           </div>
 
@@ -156,9 +211,14 @@ export default function App() {
             <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
               <button onClick={() => goTo(0)} disabled={moveIndex === 0}>|&lt;</button>
               <button onClick={() => goTo(moveIndex - 1)} disabled={moveIndex === 0}>&lt;</button>
-              <span style={{ color: '#aaa', minWidth: 180, textAlign: 'center' }}>{moveNumber}</span>
+              <span style={{ color: '#aaa', minWidth: 160, textAlign: 'center' }}>{moveNumber}</span>
               <button onClick={() => goTo(moveIndex + 1)} disabled={moveIndex === positions.length - 1}>&gt;</button>
               <button onClick={() => goTo(positions.length - 1)} disabled={moveIndex === positions.length - 1}>&gt;|</button>
+              {classInfo && (
+                <span style={{ color: classInfo.color, fontWeight: 'bold', marginLeft: 8 }}>
+                  {classInfo.label}
+                </span>
+              )}
             </div>
           )}
 
@@ -178,8 +238,8 @@ export default function App() {
                   </div>
                   <div>
                     <span className="dim">best  </span>
-                    <span style={{ color: bestMoveSan ? '#e0e0e0' : '#555' }}>
-                      {bestMoveSan ?? '—'}
+                    <span style={{ color: bestMove ? '#e0e0e0' : '#555' }}>
+                      {bestMove ? `${bestMove.from}${bestMove.to} (${bestMove.san})` : '—'}
                     </span>
                   </div>
                 </div>
