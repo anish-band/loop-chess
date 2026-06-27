@@ -204,6 +204,8 @@ export default function App() {
               customDarkSquareStyle={{ backgroundColor: '#4a4a4a' }}
               customLightSquareStyle={{ backgroundColor: '#9a9a9a' }}
               customSquareStyles={squareStyles}
+              customArrows={bestMove ? [[bestMove.from, bestMove.to, 'rgba(0,180,120,0.85)']] : []}
+              customArrowColor="rgba(0,180,120,0.85)"
             />
           </div>
 
